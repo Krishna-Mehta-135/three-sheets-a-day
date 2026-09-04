@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray, sql, gte } from "drizzle-orm";
+import { and, desc, eq, inArray, lte, sql, gte } from "drizzle-orm";
 import { unstable_cache } from "next/cache";
 import { db } from "@/db";
 import { dailies, pieces, quotes } from "@/db/schema";
@@ -110,6 +110,35 @@ export const getDaily = (day: string) =>
   unstable_cache(() => readDaily(day), ["daily", day], {
     revalidate: 3600,
     tags: [`daily:${day}`],
+  })();
+
+export type PrintedIssue = {
+  day: string;
+  type: string;
+  title: string;
+  author: string;
+};
+
+async function readPrinted(upto: string): Promise<PrintedIssue[]> {
+  return db
+    .select({
+      day: dailies.day,
+      type: dailies.type,
+      title: pieces.title,
+      author: pieces.author,
+    })
+    .from(dailies)
+    .innerJoin(pieces, eq(pieces.id, dailies.pieceId))
+    .where(lte(dailies.day, upto))
+    .orderBy(desc(dailies.day))
+    .limit(270);
+}
+
+/** Past issues never change, so the archive listing is cacheable wholesale. */
+export const getPrinted = (upto: string) =>
+  unstable_cache(() => readPrinted(upto), ["printed", upto], {
+    revalidate: 3600,
+    tags: [`daily:${upto}`],
   })();
 
 export const getQuote = (day: string, slot = "epigraph") =>

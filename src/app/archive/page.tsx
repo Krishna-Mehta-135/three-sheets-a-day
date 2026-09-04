@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { desc, lte, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { dailies, pieces, reads } from "@/db/schema";
+import { reads } from "@/db/schema";
+import { getPrinted } from "@/lib/daily";
 import { readerAndDay } from "@/lib/session";
 import { PIECE_TYPES, TYPE_META, type PieceType } from "@/lib/types";
 import { prettyDay, issueNumber } from "@/lib/dates";
@@ -15,26 +16,16 @@ export default async function Archive() {
 
   let rows, readRows;
   try {
-    rows = await db
-      .select({
-        day: dailies.day,
-        type: dailies.type,
-        title: pieces.title,
-        author: pieces.author,
-      })
-      .from(dailies)
-      .innerJoin(pieces, eq(pieces.id, dailies.pieceId))
-      .where(lte(dailies.day, today))
-      .orderBy(desc(dailies.day))
-      .limit(270);
-
-    readRows = reader
-      ? await db
-          .select({ day: reads.day, n: sql<number>`count(*)::int` })
-          .from(reads)
-          .where(eq(reads.userId, reader.id))
-          .groupBy(reads.day)
-      : [];
+    [rows, readRows] = await Promise.all([
+      getPrinted(today),
+      reader
+        ? db
+            .select({ day: reads.day, n: sql<number>`count(*)::int` })
+            .from(reads)
+            .where(eq(reads.userId, reader.id))
+            .groupBy(reads.day)
+        : [],
+    ]);
   } catch (err) {
     console.error("archive: database unavailable", err);
     return <PressNotice problem={diagnose(err)} />;
