@@ -1,0 +1,253 @@
+@import "tailwindcss";
+
+/* ── Three Sheets a Day · riso zine system ─────────────────────────────────────────── */
+
+@theme {
+  --color-paper: #efe7d6;
+  --color-paper-deep: #e3d8c0;
+  --color-ink: #16130f;
+  --color-pink: #ff4b73;
+  --color-blue: #1f3fd6;
+  --color-green: #00a95c;
+  --color-yellow: #ffcf2e;
+
+  --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
+  --font-body: var(--font-newsreader), Georgia, "Times New Roman", serif;
+  --font-mono: var(--font-space-mono), ui-monospace, "SF Mono", monospace;
+}
+
+:root {
+  --paper: #efe7d6;
+  --paper-deep: #e3d8c0;
+  --ink: #16130f;
+  --ink-pink: #ff4b73;
+  --ink-blue: #1f3fd6;
+  --ink-green: #00a95c;
+  --ink-yellow: #ffcf2e;
+  --rule: 2px solid var(--ink);
+  color-scheme: light;
+}
+
+/* Deliberately one look, lit like paper, in both themes. */
+html,
+body {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+  background-image:
+    radial-gradient(
+      circle at 50% 50%,
+      color-mix(in srgb, var(--ink) 6%, transparent) 0.6px,
+      transparent 0.7px
+    );
+  background-size: 5px 5px;
+}
+
+::selection {
+  background: var(--ink-yellow);
+  color: var(--ink);
+}
+
+/* ── paper grain: one fixed overlay, never intercepts clicks ──────────── */
+.grain {
+  position: fixed;
+  inset: -50%;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.42;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  animation: grain-jitter 0.9s steps(3) infinite;
+}
+@keyframes grain-jitter {
+  0% { transform: translate(0, 0); }
+  33% { transform: translate(-2%, 1.5%); }
+  66% { transform: translate(1.5%, -1%); }
+  100% { transform: translate(0, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .grain { animation: none; }
+}
+
+/* ── type ─────────────────────────────────────────────────────────────── */
+.display {
+  font-family: var(--font-display);
+  font-weight: 800;
+  line-height: 0.86;
+  letter-spacing: -0.035em;
+  text-transform: uppercase;
+  font-variation-settings: "wdth" 85, "opsz" 40;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+/* misregistered ink: the plate didn't line up */
+.misreg {
+  position: relative;
+  display: inline-block;
+  isolation: isolate;
+}
+.misreg::before,
+.misreg::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+.misreg::before {
+  color: var(--ink-pink);
+  transform: translate(-0.055em, 0.035em);
+}
+.misreg::after {
+  color: var(--ink-blue);
+  transform: translate(0.05em, -0.03em);
+}
+
+/* ── halftone / overprint fills ───────────────────────────────────────── */
+.halftone {
+  background-image: radial-gradient(
+    currentColor 1.35px,
+    transparent 1.45px
+  );
+  background-size: 6px 6px;
+}
+
+.overprint {
+  mix-blend-mode: multiply;
+}
+
+/* ── the sheet (a piece of paper on the pile) ─────────────────────────── */
+.sheet {
+  position: relative;
+  background: var(--paper);
+  border: var(--rule);
+  box-shadow: 7px 7px 0 var(--ink);
+  transition:
+    transform 0.28s cubic-bezier(0.2, 0.9, 0.25, 1),
+    box-shadow 0.28s cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+.sheet:hover {
+  transform: translate(-3px, -5px) rotate(var(--tilt-hover, 0deg));
+  box-shadow: 12px 14px 0 var(--ink);
+}
+.sheet:active {
+  transform: translate(3px, 3px);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+/* torn bottom edge */
+.torn {
+  --tear: polygon(
+    0 0, 100% 0, 100% calc(100% - 9px),
+    96% 100%, 92% calc(100% - 7px), 87% 100%, 82% calc(100% - 8px),
+    77% 99%, 71% calc(100% - 6px), 66% 100%, 60% calc(100% - 9px),
+    55% 100%, 49% calc(100% - 5px), 43% 100%, 38% calc(100% - 8px),
+    32% 99%, 27% calc(100% - 6px), 21% 100%, 16% calc(100% - 9px),
+    10% 100%, 5% calc(100% - 6px), 0 100%
+  );
+  clip-path: var(--tear);
+}
+
+/* ── rubber stamp ─────────────────────────────────────────────────────── */
+.stamp {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  border: 3px double currentColor;
+  padding: 0.4rem 0.9rem;
+  mix-blend-mode: multiply;
+  opacity: 0.86;
+}
+.stamp-hit {
+  animation: stamp-thump 0.42s cubic-bezier(0.2, 1.6, 0.3, 1) both;
+}
+@keyframes stamp-thump {
+  0% { transform: rotate(-14deg) scale(2.6); opacity: 0; }
+  55% { transform: rotate(-6deg) scale(0.94); opacity: 1; }
+  75% { transform: rotate(-9deg) scale(1.05); }
+  100% { transform: rotate(-8deg) scale(1); opacity: 0.86; }
+}
+
+/* ── misc ─────────────────────────────────────────────────────────────── */
+.tape {
+  position: absolute;
+  width: 92px;
+  height: 26px;
+  background: color-mix(in srgb, var(--ink-yellow) 70%, transparent);
+  border-left: 1px dashed color-mix(in srgb, var(--ink) 25%, transparent);
+  border-right: 1px dashed color-mix(in srgb, var(--ink) 25%, transparent);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+
+.rule-thick {
+  border-top: 6px solid var(--ink);
+  border-bottom: 2px solid var(--ink);
+  height: 12px;
+}
+
+.link-ink {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--ink-pink);
+}
+.link-ink:hover {
+  background: var(--ink-yellow);
+  text-decoration-color: var(--ink);
+}
+
+/* reading column */
+.prose-zine p {
+  margin-block: 0 1.05em;
+  text-wrap: pretty;
+}
+.prose-zine p:first-of-type::first-letter {
+  float: left;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 3.7em;
+  line-height: 0.78;
+  padding: 0.06em 0.09em 0 0;
+  color: var(--ink-pink);
+}
+.verse {
+  white-space: pre-wrap;
+  font-size: 1.12rem;
+  line-height: 1.85;
+}
+
+.marquee {
+  display: inline-block;
+  white-space: nowrap;
+  animation: slide 34s linear infinite;
+}
+@keyframes slide {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee { animation: none; }
+}
+
+/* scrollbar, because details matter */
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: var(--paper-deep); }
+::-webkit-scrollbar-thumb {
+  background: var(--ink);
+  border: 3px solid var(--paper-deep);
+}
