@@ -35,7 +35,15 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { reader, tz } = await readerAndDay();
+  // If the database is down the page below renders the notice — the shell
+  // must not throw first.
+  let reader = null;
+  let tz = "UTC";
+  try {
+    ({ reader, tz } = await readerAndDay());
+  } catch (err) {
+    console.error("layout: could not resolve reader", err);
+  }
   return (
     <html
       lang="en"

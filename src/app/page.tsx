@@ -7,7 +7,8 @@ import { prettyDay, issueNumber } from "@/lib/dates";
 import { SheetCard } from "@/components/SheetCard";
 import { StreakBadge } from "@/components/StreakBadge";
 import { Epigraph } from "@/components/Epigraph";
-import { EmptyPress } from "@/components/EmptyPress";
+import { PressNotice } from "@/components/PressNotice";
+import { diagnose, NO_CONTENT } from "@/lib/diagnose";
 
 export const dynamic = "force-dynamic";
 
@@ -15,13 +16,20 @@ const TILTS = [-1.4, 0.9, -0.6];
 
 export default async function Home() {
   const { reader, today } = await readerAndDay();
-  const daily = await getDaily(today);
-  const quote = await getQuote(today);
-  const readTypes = reader ? await getReadTypes(reader.id, today) : new Set<PieceType>();
-  const streak = reader ? await getStreak(reader.id, today) : null;
+
+  let daily, quote, readTypes, streak;
+  try {
+    daily = await getDaily(today);
+    quote = await getQuote(today);
+    readTypes = reader ? await getReadTypes(reader.id, today) : new Set<PieceType>();
+    streak = reader ? await getStreak(reader.id, today) : null;
+  } catch (err) {
+    console.error("home: database unavailable", err);
+    return <PressNotice problem={diagnose(err)} />;
+  }
 
   const available = PIECE_TYPES.filter((t) => daily[t]);
-  if (available.length === 0) return <EmptyPress />;
+  if (available.length === 0) return <PressNotice problem={NO_CONTENT} />;
 
   return (
     <main className="mx-auto max-w-5xl px-5 pb-10 sm:px-8">

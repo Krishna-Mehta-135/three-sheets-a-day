@@ -5,32 +5,40 @@ import { dailies, pieces, reads } from "@/db/schema";
 import { readerAndDay } from "@/lib/session";
 import { PIECE_TYPES, TYPE_META, type PieceType } from "@/lib/types";
 import { prettyDay, issueNumber } from "@/lib/dates";
+import { PressNotice } from "@/components/PressNotice";
+import { diagnose } from "@/lib/diagnose";
 
 export const dynamic = "force-dynamic";
 
 export default async function Archive() {
   const { reader, today } = await readerAndDay();
 
-  const rows = await db
-    .select({
-      day: dailies.day,
-      type: dailies.type,
-      title: pieces.title,
-      author: pieces.author,
-    })
-    .from(dailies)
-    .innerJoin(pieces, eq(pieces.id, dailies.pieceId))
-    .where(lte(dailies.day, today))
-    .orderBy(desc(dailies.day))
-    .limit(270);
+  let rows, readRows;
+  try {
+    rows = await db
+      .select({
+        day: dailies.day,
+        type: dailies.type,
+        title: pieces.title,
+        author: pieces.author,
+      })
+      .from(dailies)
+      .innerJoin(pieces, eq(pieces.id, dailies.pieceId))
+      .where(lte(dailies.day, today))
+      .orderBy(desc(dailies.day))
+      .limit(270);
 
-  const readRows = reader
-    ? await db
-        .select({ day: reads.day, n: sql<number>`count(*)::int` })
-        .from(reads)
-        .where(eq(reads.userId, reader.id))
-        .groupBy(reads.day)
-    : [];
+    readRows = reader
+      ? await db
+          .select({ day: reads.day, n: sql<number>`count(*)::int` })
+          .from(reads)
+          .where(eq(reads.userId, reader.id))
+          .groupBy(reads.day)
+      : [];
+  } catch (err) {
+    console.error("archive: database unavailable", err);
+    return <PressNotice problem={diagnose(err)} />;
+  }
   const readCount = new Map(readRows.map((r) => [r.day, r.n]));
 
   const byDay = new Map<string, Record<string, { title: string; author: string }>>();
