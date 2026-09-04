@@ -10,7 +10,9 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "content:fetch": "node scripts/fetch-content.mjs",
-    "content:load": "node scripts/load-content.mjs"
+    "content:load": "node scripts/load-content.mjs",
+    "setup": "node scripts/setup.mjs",
+    "vercel-build": "node scripts/setup.mjs && next build"
   },
   "dependencies": {
     "drizzle-orm": "^0.38.3",
