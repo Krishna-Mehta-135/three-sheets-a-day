@@ -43,6 +43,12 @@ const SOURCES = {
   ],
 };
 
+/** Length windows per type, in characters of extracted text. */
+const LIMITS = {
+  essay: { min: 2500, max: 46000 },
+  story: { min: 3500, max: 62000 },
+};
+
 /** Wikimedia rate-limits anonymous clients hard; stay serial and polite. */
 const GAP_MS = 320;
 
