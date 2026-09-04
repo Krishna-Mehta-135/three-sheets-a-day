@@ -17,7 +17,16 @@ function connect(): Db {
       "DATABASE_URL is not set. Copy .env.example to .env and fill it in.",
     );
   }
-  const sql = globalForDb.__gristSql ?? postgres(url, { max: 5, prepare: false });
+  const sql =
+    globalForDb.__gristSql ??
+    postgres(url, {
+      // Serverless: one instance serves one request at a time, so a big pool
+      // just holds connections open against Neon's limit.
+      max: process.env.VERCEL ? 1 : 5,
+      idle_timeout: 20,
+      connect_timeout: 10,
+      prepare: false,
+    });
   const instance = drizzle(sql, { schema });
   if (process.env.NODE_ENV !== "production") {
     globalForDb.__gristSql = sql;

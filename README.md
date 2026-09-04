@@ -85,6 +85,22 @@ into the `dailies` table so everyone sees the same issue.
 
 ---
 
+## Speed
+
+Two things dominate, and both are about distance:
+
+- **Function region.** `vercel.json` pins execution to `bom1` (Mumbai) so it
+  sits beside the Neon database in `ap-south-1`. If you move the database,
+  move this too — a function far from its database pays that round trip on
+  every query, several times per page.
+- **Caching the issue.** A day's three sheets never change once picked, so
+  `getDaily` and the epigraph are cached for an hour. Only per-reader state
+  (your streak, what you have stamped) touches the database on a warm request.
+
+Independent queries run through `Promise.all` rather than in sequence, and the
+connection pool is capped at one on serverless, where each instance handles one
+request at a time anyway.
+
 ## How it works
 
 | Thing | Where |
