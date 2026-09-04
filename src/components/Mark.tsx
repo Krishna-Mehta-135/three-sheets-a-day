@@ -12,15 +12,15 @@ export function Mark({ size = 34 }: { size?: number }) {
       focusable="false"
       className="shrink-0"
     >
-      <g style={{ mixBlendMode: "multiply" }}>
-        <rect x="9" y="14" width="34" height="42" fill="var(--ink-pink)" transform="rotate(-9 26 35)" />
-        <rect x="15" y="11" width="34" height="42" fill="var(--ink-blue)" transform="rotate(3 32 32)" />
-        <rect x="21" y="8" width="34" height="42" fill="var(--ink-yellow)" transform="rotate(13 38 29)" />
-      </g>
-      <g fill="none" stroke="var(--ink)" strokeWidth="3.5">
-        <rect x="9" y="14" width="34" height="42" transform="rotate(-9 26 35)" />
-        <rect x="15" y="11" width="34" height="42" transform="rotate(3 32 32)" />
-        <rect x="21" y="8" width="34" height="42" transform="rotate(13 38 29)" />
+      <g strokeLinejoin="miter">
+        <rect x="9" y="14" width="32" height="40" fill="var(--ink-pink)" transform="rotate(-11 26 35)" />
+        <rect x="16" y="11" width="32" height="40" fill="#2f57e8" fillOpacity="0.62" transform="rotate(2 32 32)" style={{ mixBlendMode: "multiply" }} />
+        <rect x="23" y="9" width="32" height="40" fill="var(--ink-yellow)" fillOpacity="0.72" transform="rotate(15 38 29)" style={{ mixBlendMode: "multiply" }} />
+        <g fill="none" stroke="var(--ink)" strokeWidth="3.5">
+          <rect x="9" y="14" width="32" height="40" transform="rotate(-11 26 35)" />
+          <rect x="16" y="11" width="32" height="40" transform="rotate(2 32 32)" />
+          <rect x="23" y="9" width="32" height="40" transform="rotate(15 38 29)" />
+        </g>
       </g>
     </svg>
   );
