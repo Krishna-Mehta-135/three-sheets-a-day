@@ -16,6 +16,7 @@
 import { writeFile, readFile, mkdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { curate } from "./curation.mjs";
+import { cleanBody, parseAuthor, prettyTitle } from "./extract.mjs";
 
 const UA = "grist/0.1 (personal daily-reading project; non-commercial)";
 const WS = "https://en.wikisource.org/w/api.php";
@@ -116,104 +117,6 @@ async function fetchPoems(target) {
   return [...seen.values()].slice(0, target);
 }
 
-/* ── html -> plain text ───────────────────────────────────────────────── */
-
-const ENTITIES = {
-  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ",
-  mdash: "—", ndash: "–", hellip: "…", rsquo: "’", lsquo: "‘",
-  ldquo: "“", rdquo: "”", laquo: "«", raquo: "»", deg: "°",
-  eacute: "é", egrave: "è", agrave: "à", ccedil: "ç", uuml: "ü",
-  ouml: "ö", auml: "ä", pound: "£", sect: "§", dagger: "†",
-};
-
-function decodeEntities(s) {
-  return s
-    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&([a-z]+);/gi, (m, n) => ENTITIES[n] ?? ENTITIES[n.toLowerCase()] ?? m);
-}
-
-function htmlToText(html) {
-  let h = html;
-  h = h.replace(/<(script|style|table)\b[\s\S]*?<\/\1>/gi, " ");
-  h = h.replace(/<sup\b[^>]*class="[^"]*reference[^"]*"[\s\S]*?<\/sup>/gi, "");
-  h = h.replace(
-    /<span\b[^>]*class="[^"]*(pagenum|pagenumber|ws-pagenum)[^"]*"[^>]*>[\s\S]*?<\/span>/gi,
-    "",
-  );
-  h = h.replace(
-    /<div\b[^>]*class="[^"]*(ws-noexport|noprint|printfooter|catlinks|licen[cs]e|mbox|navigation)[^"]*"[\s\S]*?<\/div>/gi,
-    " ",
-  );
-  h = h.replace(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi, "\n\n$1\n\n");
-  h = h.replace(/<br\s*\/?>/gi, "\n");
-  h = h.replace(/<\/(p|div|li|dd|dt|blockquote|poem|section)>/gi, "\n\n");
-  h = h.replace(/<[^>]+>/g, " ");
-  return decodeEntities(h)
-    .replace(/[ \t ]+/g, " ")
-    .split("\n")
-    .map((l) => l.trim())
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-const TAIL =
-  /\n\s*(Notes?|Footnotes?|References?|External links?|Bibliography|See also|Further reading|About this work|Copyright)\s*\n/i;
-
-const FRONT_JUNK =
-  /^(price|published|printed|london|new york|copyright|all rights|entered according|by the|headquarters|no\.|vol\.|chapter|contents|\[|\d+$)/i;
-
-/**
- * Wikisource pages often open with a scanned title page — publisher, price,
- * the title in caps three times. Drop the short lines before the first real
- * paragraph.
- */
-function trimFrontMatter(text) {
-  const paras = text.split("\n\n");
-  const firstReal = paras.findIndex((p) => p.length > 240);
-  if (firstReal <= 0 || firstReal > 22) return text;
-  const junky = paras
-    .slice(0, firstReal)
-    .every((p) => p.length < 110 && (p === p.toUpperCase() || FRONT_JUNK.test(p)));
-  return junky ? paras.slice(firstReal).join("\n\n") : text;
-}
-
-function cleanBody(html) {
-  let t = htmlToText(html);
-  const cut = t.search(TAIL);
-  if (cut > 600) t = t.slice(0, cut);
-  return trimFrontMatter(t).trim();
-}
-
-function parseAuthor(wikitext) {
-  if (!wikitext) return null;
-  const strip = (raw) =>
-    raw
-      .replace(/\[\[(?:Author:)?([^|\]]+)(?:\|([^\]]+))?\]\]/g, (_, x, y) => y || x)
-      .replace(/\{\{[^}]*\}\}/g, "")
-      .replace(/''+/g, "")
-      .replace(/<[^>]+>/g, "")
-      .trim();
-
-  const field = wikitext.match(/\|\s*author\s*=\s*([^\n|}]+)/i);
-  if (field) {
-    const a = strip(field[1]);
-    if (a && a.length < 60) return a;
-  }
-  const link = wikitext.match(/\[\[Author:([^|\]]+)/);
-  if (link) {
-    const a = link[1].trim();
-    if (a && a.length < 60) return a;
-  }
-  return null;
-}
-
-function prettyTitle(full) {
-  const leaf = full.split("/").pop().trim();
-  return (leaf.length > 2 ? leaf : full).replace(/^["']|["']$/g, "");
-}
-
 /* ── wikisource crawl ─────────────────────────────────────────────────── */
 
 async function categoryMembers(category, type) {
@@ -262,21 +165,27 @@ async function collectPageIds(rootCategory, maxSubcats) {
   return [...ids];
 }
 
-async function fetchPage(pageid, type, topic) {
+async function fetchPage(pageid, type, topic, tally) {
+  const reject = (why) => {
+    if (tally) tally[why] = (tally[why] ?? 0) + 1;
+    return null;
+  };
+
   const { min, max } = LIMITS[type];
   const data = await getJSON(
     `${WS}?action=parse&format=json&formatversion=2&pageid=${pageid}&prop=text|wikitext`,
   );
   const parse = data?.parse;
-  if (!parse?.text) return null;
+  if (!parse?.text) return reject("empty");
 
   const body = cleanBody(parse.text);
-  if (body.length < min || body.length > max) return null;
+  if (body.length < min) return reject("too-short");
+  if (body.length > max) return reject("too-long");
   if (/^\s*(This|The following)\b.{0,40}\b(disambiguation|index|versions)\b/i.test(body))
-    return null;
+    return reject("index-page");
 
   const title = prettyTitle(parse.title ?? "");
-  if (!title || title.length > 120) return null;
+  if (!title || title.length > 120) return reject("bad-title");
 
   return {
     id: id("wikisource", String(pageid)),
@@ -381,7 +290,7 @@ function bucketCount(pieces, type, topic) {
   ).length;
 }
 
-/** How many *curated* pieces of `type` we already hold, across all buckets. */
+/** How many *curated* pieces of `type` we hold across every bucket. */
 function curatedCount(pieces, type) {
   return curate([...pieces.values()]).kept.filter((p) => p.type === type).length;
 }
@@ -406,18 +315,20 @@ async function topUpWikisource(pieces, type) {
     }
 
     let added = 0;
+    const tally = {};
     for (let i = 0; i < ids.length; i++) {
       const pid = ids[i];
       if (pieces.has(id("wikisource", String(pid)))) continue;
       try {
-        const p = await fetchPage(pid, type, src.topic);
+        const p = await fetchPage(pid, type, src.topic, tally);
         if (p) {
           pieces.set(p.id, p);
           added++;
           if (have() >= src.target) break;
         }
-      } catch {
-        /* one bad page shouldn't stop the press */
+      } catch (err) {
+        tally.error = (tally.error ?? 0) + 1;
+        if (tally.error <= 3) console.log(`\n  ! ${src.category}: ${err.message}`);
       }
       if (i % 10 === 0) {
         process.stdout.write(
@@ -427,7 +338,11 @@ async function topUpWikisource(pieces, type) {
       }
       await sleep(GAP_MS);
     }
-    console.log();
+    const why = Object.entries(tally)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${k} ${v}`)
+      .join(", ");
+    console.log(`\n  ${label} · ${src.category}: kept ${added}${why ? ` · rejected: ${why}` : ""}`);
   }
 }
 
