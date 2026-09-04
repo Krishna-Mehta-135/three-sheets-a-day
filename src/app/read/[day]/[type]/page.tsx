@@ -6,7 +6,7 @@ import { marginalia } from "@/db/schema";
 import { getDaily } from "@/lib/daily";
 import { getReadTypes } from "@/lib/streak";
 import { readerAndDay } from "@/lib/session";
-import { PIECE_TYPES, TYPE_META, isPieceType } from "@/lib/types";
+import { PIECE_TYPES, TYPE_META, isPieceType, type PieceType } from "@/lib/types";
 import { prettyDay, issueNumber, EPOCH, maxDayAnywhere } from "@/lib/dates";
 import { ProgressRail } from "@/components/ProgressRail";
 import { StampButton } from "@/components/StampButton";
@@ -26,11 +26,16 @@ export default async function Read({
   const { reader, today } = await readerAndDay();
   if (day > maxDayAnywhere() || day < EPOCH) redirect("/");
 
-  const daily = await getDaily(day);
+  const [daily, readTypes] = await Promise.all([
+    getDaily(day),
+    reader ? getReadTypes(reader.id, day) : new Set<PieceType>(),
+  ]);
+
   const piece = daily[type];
   if (!piece) notFound();
 
-  const readTypes = reader ? await getReadTypes(reader.id, day) : new Set();
+  // Keyed by piece, so this can only run once the piece is known — one extra
+  // round trip, and only for a signed-in reader.
   const note = reader
     ? (
         await db

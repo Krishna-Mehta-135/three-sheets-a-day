@@ -1,5 +1,6 @@
 import "server-only";
 import { and, eq, inArray, sql, gte } from "drizzle-orm";
+import { unstable_cache } from "next/cache";
 import { db } from "@/db";
 import { dailies, pieces, quotes } from "@/db/schema";
 import { PIECE_TYPES, type PieceType } from "./types";
@@ -32,7 +33,7 @@ async function pickFor(day: string, type: PieceType): Promise<string | null> {
 }
 
 /** Idempotently lock in the three sheets for a day, then return them. */
-export async function getDaily(
+async function readDaily(
   day: string,
 ): Promise<Partial<Record<PieceType, Piece>>> {
   const existing = await db
@@ -85,8 +86,33 @@ export async function pieceCounts(): Promise<Record<string, number>> {
 export type Quote = typeof quotes.$inferSelect;
 
 /** Same epigraph for everyone, all day. Not part of the streak. */
-export async function getQuote(day: string, slot = "epigraph"): Promise<Quote | null> {
-  const all = await db.select().from(quotes).orderBy(quotes.id);
-  if (!all.length) return null;
-  return all[hash32(`${day}::${slot}`) % all.length];
+async function readQuote(day: string, slot: string): Promise<Quote | null> {
+  const [{ n }] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(quotes);
+  if (!n) return null;
+  // Pick by offset rather than pulling the whole table across the wire.
+  const [row] = await db
+    .select()
+    .from(quotes)
+    .orderBy(quotes.id)
+    .limit(1)
+    .offset(hash32(`${day}::${slot}`) % n);
+  return row ?? null;
 }
+
+/**
+ * A day's issue never changes once printed, so it is worth caching across
+ * requests — that takes the database out of the path for everything except
+ * per-reader state.
+ */
+export const getDaily = (day: string) =>
+  unstable_cache(() => readDaily(day), ["daily", day], {
+    revalidate: 3600,
+    tags: [`daily:${day}`],
+  })();
+
+export const getQuote = (day: string, slot = "epigraph") =>
+  unstable_cache(() => readQuote(day, slot), ["quote", day, slot], {
+    revalidate: 3600,
+  })();

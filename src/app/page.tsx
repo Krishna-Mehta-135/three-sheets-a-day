@@ -19,10 +19,14 @@ export default async function Home() {
 
   let daily, quote, readTypes, streak;
   try {
-    daily = await getDaily(today);
-    quote = await getQuote(today);
-    readTypes = reader ? await getReadTypes(reader.id, today) : new Set<PieceType>();
-    streak = reader ? await getStreak(reader.id, today) : null;
+    // Independent round trips — awaiting them in sequence cost a full
+    // database latency each, which is a lot when the region is far away.
+    [daily, quote, readTypes, streak] = await Promise.all([
+      getDaily(today),
+      getQuote(today),
+      reader ? getReadTypes(reader.id, today) : new Set<PieceType>(),
+      reader ? getStreak(reader.id, today) : null,
+    ]);
   } catch (err) {
     console.error("home: database unavailable", err);
     return <PressNotice problem={diagnose(err)} />;
