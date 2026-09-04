@@ -20,26 +20,28 @@ import { curate } from "./curation.mjs";
 const UA = "grist/0.1 (personal daily-reading project; non-commercial)";
 const WS = "https://en.wikisource.org/w/api.php";
 
-const TARGET = { poem: 240, essay: 230, story: 220, quote: 240 };
+const TARGET = { poem: 240, story: 220, quote: 240 };
 
-/** Wikisource categories per type. `topic` tags the sheet in the UI. */
+/**
+ * Wikisource categories, each with its own quota. A single shared essay target
+ * meant the generic "Essays" category filled it on its own and the philosophy
+ * categories were never reached — so quotas are per bucket, keyed by the topic
+ * a source contributes to.
+ */
 const SOURCES = {
   essay: [
-    { category: "Essays", subcats: 12 },
-    { category: "Literary criticism", subcats: 6 },
-    { category: "Philosophy", subcats: 10, topic: "philosophy" },
-    { category: "Ethics", subcats: 6, topic: "philosophy" },
-    { category: "Political philosophy", subcats: 6, topic: "philosophy" },
-    { category: "Philosophy of religion", subcats: 4, topic: "philosophy" },
+    { category: "Essays", subcats: 12, topic: null, target: 150 },
+    { category: "Literary criticism", subcats: 6, topic: null, target: 150 },
+    { category: "Philosophy", subcats: 10, topic: "philosophy", target: 90 },
+    { category: "Ethics", subcats: 6, topic: "philosophy", target: 90 },
+    { category: "Political philosophy", subcats: 6, topic: "philosophy", target: 90 },
+    { category: "Philosophy of religion", subcats: 4, topic: "philosophy", target: 90 },
   ],
   story: [
-    { category: "Short stories", subcats: 14 },
+    { category: "Short stories", subcats: 14, topic: null, target: 220 },
   ],
 };
-const LIMITS = {
-  essay: { min: 2500, max: 46000 },
-  story: { min: 3500, max: 62000 },
-};
+
 /** Wikimedia rate-limits anonymous clients hard; stay serial and polite. */
 const GAP_MS = 320;
 
@@ -372,14 +374,26 @@ async function fetchQuotes(target) {
 
 /* ── incremental wikisource crawl ─────────────────────────────────────── */
 
-/** How many *curated* pieces of `type` we already hold. */
+/** How many *curated* pieces we hold in a (type, topic) bucket. */
+function bucketCount(pieces, type, topic) {
+  return curate([...pieces.values()]).kept.filter(
+    (p) => p.type === type && (p.topic ?? null) === (topic ?? null),
+  ).length;
+}
+
+/** How many *curated* pieces of `type` we already hold, across all buckets. */
 function curatedCount(pieces, type) {
   return curate([...pieces.values()]).kept.filter((p) => p.type === type).length;
 }
 
-async function topUpWikisource(pieces, type, target) {
+async function topUpWikisource(pieces, type) {
   for (const src of SOURCES[type]) {
-    if (curatedCount(pieces, type) >= target) return;
+    const have = () => bucketCount(pieces, type, src.topic);
+    const label = src.topic ?? type;
+    if (have() >= src.target) {
+      console.log(`  ${label} bucket already full (${have()}/${src.target}) — skipping ${src.category}`);
+      continue;
+    }
     let ids;
     try {
       ids = shuffle(
@@ -400,15 +414,15 @@ async function topUpWikisource(pieces, type, target) {
         if (p) {
           pieces.set(p.id, p);
           added++;
-          if (curatedCount(pieces, type) >= target) break;
+          if (have() >= src.target) break;
         }
       } catch {
         /* one bad page shouldn't stop the press */
       }
       if (i % 10 === 0) {
         process.stdout.write(
-          `\r  ${type} · ${src.category.slice(0, 22)}: +${added} ` +
-            `(have ${curatedCount(pieces, type)}/${target}, checked ${i + 1}/${ids.length})     `,
+          `\r  ${label} · ${src.category.slice(0, 22)}: +${added} ` +
+            `(have ${have()}/${src.target}, checked ${i + 1}/${ids.length})     `,
         );
       }
       await sleep(GAP_MS);
@@ -443,8 +457,8 @@ const pieces = new Map(existing.map((p) => [p.id, p]));
 console.log(`  starting from ${pieces.size} pieces on file\n`);
 
 await topUpPoems(pieces, TARGET.poem);
-await topUpWikisource(pieces, "essay", TARGET.essay);
-await topUpWikisource(pieces, "story", TARGET.story);
+await topUpWikisource(pieces, "essay");
+await topUpWikisource(pieces, "story");
 const quotes = await fetchQuotes(TARGET.quote);
 
 const all = [...pieces.values()];
@@ -457,9 +471,11 @@ const tally = (xs) =>
   ["poem", "essay", "story"]
     .map((t) => `${xs.filter((x) => x.type === t).length} ${t}s`)
     .join(", ");
+const philosophy = (xs) => xs.filter((x) => x.topic === "philosophy").length;
 
 console.log(
   `\n✓ ${all.length} pieces on file -> ${kept.length} after curation (${tally(kept)})\n` +
+    `  of which ${philosophy(kept)} are tagged philosophy\n` +
     `  dropped ${dropped.children} children's, ${dropped.capped} over author cap\n` +
     `  ${quotes.length} quotes\n` +
     `  ${Math.round((Date.now() - t0) / 1000)}s · next: npm run content:load`,
