@@ -6,6 +6,11 @@ import { TYPE_META, isPieceType } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/**
+ * A streamed answer runs well past the 10s a serverless function gets by
+ * default — that cut replies off mid-sentence in production.
+ */
+export const maxDuration = 60;
 
 const MODEL = process.env.GEMINI_MODEL ?? "gemini-3.5-flash-lite";
 const ENDPOINT = (model: string) =>
@@ -120,6 +125,8 @@ export async function POST(req: Request) {
       const encoder = new TextEncoder();
       const decoder = new TextDecoder();
       const chunks = upstream.body!.getReader();
+      const abort = () => void chunks.cancel().catch(() => {});
+      req.signal.addEventListener("abort", abort);
       let buffer = "";
       try {
         for (;;) {
@@ -146,8 +153,10 @@ export async function POST(req: Request) {
           }
         }
       } catch (err) {
-        console.error("gemini stream broke", err);
+        // A reader navigating away aborts the request; that isn't a failure.
+        if (!req.signal.aborted) console.error("gemini stream broke", err);
       } finally {
+        req.signal.removeEventListener("abort", abort);
         controller.close();
       }
     },
