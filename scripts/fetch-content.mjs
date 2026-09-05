@@ -2,7 +2,7 @@
 /**
  * Pulls public-domain poems, essays and short stories into content/pieces.json.
  *
- *   poems   <- poetrydb.org
+ *   poems   <- poetrydb.org (whole corpus, by author) + en.wikisource.org
  *   essays  <- en.wikisource.org  Category:Essays (+ subcategories)
  *   stories <- en.wikisource.org  Category:Short stories (+ subcategories)
  *
@@ -21,7 +21,7 @@ import { cleanBody, parseAuthor, prettyTitle } from "./extract.mjs";
 const UA = "grist/0.1 (personal daily-reading project; non-commercial)";
 const WS = "https://en.wikisource.org/w/api.php";
 
-const TARGET = { poem: 240, story: 220, quote: 240 };
+const TARGET = { poem: 741, story: 720, quote: 240 };
 
 /**
  * Wikisource categories, each with its own quota. A single shared essay target
@@ -30,21 +30,33 @@ const TARGET = { poem: 240, story: 220, quote: 240 };
  * a source contributes to.
  */
 const SOURCES = {
+  poem: [
+    { category: "Poems", subcats: 12, topic: null, target: 700 },
+    { category: "Poetry", subcats: 6, topic: null, target: 741 },
+  ],
   essay: [
-    { category: "Essays", subcats: 12, topic: null, target: 150 },
-    { category: "Literary criticism", subcats: 6, topic: null, target: 150 },
-    { category: "Philosophy", subcats: 10, topic: "philosophy", target: 90 },
-    { category: "Ethics", subcats: 6, topic: "philosophy", target: 90 },
-    { category: "Political philosophy", subcats: 6, topic: "philosophy", target: 90 },
-    { category: "Philosophy of religion", subcats: 4, topic: "philosophy", target: 90 },
+    { category: "Essays", subcats: 4, topic: null, target: 300 },
+    { category: "Literary criticism", subcats: 3, topic: null, target: 340 },
+    { category: "Sermons", subcats: 4, topic: null, target: 380 },
+    { category: "Natural history", subcats: 3, topic: null, target: 420 },
+    { category: "Education", subcats: 12, topic: null, target: 450 },
+    { category: "Religion", subcats: 16, topic: null, target: 480 },
+    { category: "Journalism", subcats: 8, topic: null, target: 500 },
+    { category: "Anthropology", subcats: 8, topic: null, target: 520 },
+    { category: "Sociology", subcats: 6, topic: null, target: 540 },
+    { category: "Philosophy", subcats: 20, topic: "philosophy", target: 70 },
+    { category: "Ethics", subcats: 7, topic: "philosophy", target: 110 },
+    { category: "Political philosophy", subcats: 7, topic: "philosophy", target: 150 },
+    { category: "Philosophy of religion", subcats: 4, topic: "philosophy", target: 190 },
   ],
   story: [
-    { category: "Short stories", subcats: 14, topic: null, target: 220 },
+    { category: "Short stories", subcats: 32, topic: null, target: 720 },
   ],
 };
 
 /** Length windows per type, in characters of extracted text. */
 const LIMITS = {
+  poem: { min: 220, max: 9000 },
   essay: { min: 2500, max: 46000 },
   story: { min: 3500, max: 62000 },
 };
@@ -92,21 +104,33 @@ const words = (s) => s.split(/\s+/).filter(Boolean).length;
 
 /* ── poems ────────────────────────────────────────────────────────────── */
 
-async function fetchPoems(target) {
-  const seen = new Map();
-  for (let guard = 0; seen.size < target && guard < 40; guard++) {
-    const batch = await getJSON("https://poetrydb.org/random/50");
-    if (!Array.isArray(batch)) break;
+/**
+ * PoetryDB has ~3,000 poems by ~130 authors. Random draws saturate slowly and
+ * can never finish the pile, so sweep the author list instead: one request per
+ * author gets everything they have, and re-runs are cheap because we skip
+ * authors already represented to their curation cap.
+ */
+async function fetchPoems(pieces, target) {
+  const authors = (await getJSON("https://poetrydb.org/author"))?.authors ?? [];
+  let added = 0;
+  for (const [i, author] of shuffle(authors, 20260905).entries()) {
+    if (curatedCount(pieces, "poem") >= target) break;
+    let batch;
+    try {
+      batch = await getJSON(
+        `https://poetrydb.org/author/${encodeURIComponent(author)}`,
+      );
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(batch)) continue;
     for (const p of batch) {
       const title = String(p.title ?? "").trim().replace(/\.$/, "");
-      const author = String(p.author ?? "Anonymous").trim();
       const lines = Array.isArray(p.lines) ? p.lines : [];
       if (!title || lines.length < 4 || lines.length > 140) continue;
       const body = lines.join("\n").trim();
       if (body.length < 120) continue;
-      const key = `${title}|${author}`.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.set(key, {
+      const piece = {
         id: id("poetrydb", title, author),
         type: "poem",
         title,
@@ -115,12 +139,18 @@ async function fetchPoems(target) {
         source: "PoetryDB",
         sourceUrl: `https://poetrydb.org/author,title/${encodeURIComponent(author)};${encodeURIComponent(title)}`,
         wordCount: words(body),
-      });
+      };
+      if (!pieces.has(piece.id)) {
+        pieces.set(piece.id, piece);
+        added++;
+      }
     }
-    process.stdout.write(`\r  poems ${seen.size}/${target}   `);
+    process.stdout.write(
+      `\r  poem · PoetryDB: +${added} (have ${curatedCount(pieces, "poem")}/${target}, ` +
+        `author ${i + 1}/${authors.length})          `,
+    );
   }
   console.log();
-  return [...seen.values()].slice(0, target);
 }
 
 /* ── wikisource crawl ─────────────────────────────────────────────────── */
@@ -189,6 +219,15 @@ async function fetchPage(pageid, type, topic, tally) {
   if (body.length > max) return reject("too-long");
   if (/^\s*(This|The following)\b.{0,40}\b(disambiguation|index|versions)\b/i.test(body))
     return reject("index-page");
+  // Wikisource keeps "Versions of X" hub pages in the same categories as the
+  // works themselves; they read as a list of links, not as a poem.
+  if (/^\s*Versions of\b/i.test(body) || /\bmay refer to\b/i.test(body.slice(0, 200)))
+    return reject("index-page");
+  if (/\{\{\s*(versions|disambiguation|translations|dab)\b/i.test(parse.wikitext ?? ""))
+    return reject("index-page");
+  // A poem that arrives as one prose block is a scan of prose, not verse.
+  if (type === "poem" && (body.slice(0, 900).match(/\n/g)?.length ?? 0) < 4)
+    return reject("not-verse");
 
   const title = prettyTitle(parse.title ?? "");
   if (!title || title.length > 120) return reject("bad-title");
@@ -352,21 +391,25 @@ async function topUpWikisource(pieces, type) {
   }
 }
 
-async function topUpPoems(pieces, target) {
-  for (let guard = 0; guard < 25; guard++) {
-    if (curatedCount(pieces, "poem") >= target) break;
-    for (const p of await fetchPoems(60)) if (!pieces.has(p.id)) pieces.set(p.id, p);
-    process.stdout.write(
-      `\r  poem · have ${curatedCount(pieces, "poem")}/${target}          `,
-    );
-  }
-  console.log();
-}
-
 /* ── main ────────────────────────────────────────────────────────────── */
 
 const t0 = Date.now();
 console.log("Three Sheets a Day · setting type\n");
+
+/**
+ * Phases can be run on their own — `node scripts/fetch-content.mjs poem` tops
+ * up the poems and writes the file, without sitting through the hour-long
+ * Wikisource prose crawls. No arguments means everything.
+ */
+const ALL_PHASES = ["poem", "essay", "story", "quote"];
+const argPhases = process.argv.slice(2).map((a) => a.replace(/s$/, ""));
+const bad = argPhases.filter((a) => !ALL_PHASES.includes(a));
+if (bad.length) {
+  console.error(`unknown phase: ${bad.join(", ")} (pick from ${ALL_PHASES.join(", ")})`);
+  process.exit(1);
+}
+const phases = new Set(argPhases.length ? argPhases : ALL_PHASES);
+console.log(`  running: ${[...phases].join(", ")}\n`);
 
 let existing = [];
 try {
@@ -377,10 +420,21 @@ try {
 const pieces = new Map(existing.map((p) => [p.id, p]));
 console.log(`  starting from ${pieces.size} pieces on file\n`);
 
-await topUpPoems(pieces, TARGET.poem);
-await topUpWikisource(pieces, "essay");
-await topUpWikisource(pieces, "story");
-const quotes = await fetchQuotes(TARGET.quote);
+if (phases.has("poem")) {
+  await fetchPoems(pieces, TARGET.poem);
+  if (curatedCount(pieces, "poem") < TARGET.poem) await topUpWikisource(pieces, "poem");
+}
+if (phases.has("essay")) await topUpWikisource(pieces, "essay");
+if (phases.has("story")) await topUpWikisource(pieces, "story");
+
+// Keep whatever is already on file for a phase we're not running this time.
+let quotes = [];
+try {
+  quotes = JSON.parse(await readFile("content/quotes.json", "utf8"));
+} catch {
+  /* first run */
+}
+if (phases.has("quote")) quotes = await fetchQuotes(TARGET.quote);
 
 const all = [...pieces.values()];
 await mkdir("content", { recursive: true });

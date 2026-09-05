@@ -43,8 +43,12 @@ export function isForChildren(piece) {
   return hits >= 2;
 }
 
-/** Per-author ceilings, so one Byron binge can't eat a third of the poems. */
-export const AUTHOR_CAP = { poem: 5, essay: 4, story: 4 };
+/**
+ * Per-author ceilings, so one prolific name can't eat the pile. Poems get a
+ * loose ceiling on purpose: they're short, PoetryDB's corpus is deep per
+ * author, and a good poet is worth reading twenty times.
+ */
+export const AUTHOR_CAP = { poem: 20, essay: 4, story: 4 };
 
 /**
  * Curate a flat list: drop children's material, then round-robin by author so
